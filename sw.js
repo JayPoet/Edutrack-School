@@ -1,5 +1,5 @@
 /* EduTrack service worker: offline app shell. Change CACHE when you publish a new version. */
-const CACHE = 'edutrackpro-v1';
+const CACHE = 'edutrackpro-v2';
 const SHELL = ['./', 'index.html', 'manifest.json'];
 
 self.addEventListener('install', e => {
