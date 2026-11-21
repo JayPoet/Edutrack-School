@@ -10,7 +10,7 @@
 window.EDUTRACK_SETTINGS = {
   companyName:     'EduTrack',
   legalName:       'EduTrack',          // full legal name of your company, if different
-  address:         'Busia, Uganda',                  // optional postal address shown in the legal pages
+  address:         '',                  // optional postal address shown in the legal pages
   supportEmail:    'jaypoet380@gmail.com',
   supportPhone:    '+256751947877',
   supportPhone2:   '+256767040920',     // alternative number
@@ -7359,9 +7359,33 @@ async function loadSampleData(){
 initCloudApp();
 </script>
   <script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js');
+const APP_VERSION = '1.0.0';   // <<< change this on every release, and change version.json to match
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js'); }
+/* ---- update notice: compares this app's version with version.json on the server ---- */
+async function checkForUpdate(){
+  try{
+    if(document.getElementById('updBar')) return;
+    const r = await fetch('version.json?t=' + Date.now(), {cache:'no-store'});
+    if(!r.ok) return;
+    const v = await r.json();
+    if(!v.version || v.version === APP_VERSION || sessionStorage.getItem('et_upd_skip') === v.version) return;
+    const bar = document.createElement('div');
+    bar.id = 'updBar';
+    bar.style.cssText = 'position:fixed;left:12px;right:12px;bottom:14px;z-index:900;background:#16213E;color:#fff;border-radius:16px;padding:14px 16px;box-shadow:0 12px 40px rgba(0,0,0,.4);border:1px solid #E8A33D;font:500 14px Inter,system-ui,sans-serif;max-width:520px;margin:0 auto';
+    const notes = (v.notes || []).slice(0,4).map(n => '<li>' + String(n).replace(/</g,'&lt;') + '</li>').join('');
+    bar.innerHTML = '<div style="font-weight:700;margin-bottom:4px">🎉 A new version of EduTrack is ready (v' + String(v.version).replace(/</g,'&lt;') + ')</div>' + (notes ? '<ul style="margin:4px 0 8px 18px;padding:0;font-size:13px;opacity:.9">' + notes + '</ul>' : '') + '<div style="display:flex;gap:8px"><button id="updGo" style="background:#E8A33D;color:#2B1B03;border:0;border-radius:10px;padding:9px 16px;font-weight:700;cursor:pointer">Update now</button><button id="updLater" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:10px;padding:9px 14px;cursor:pointer">Later</button></div>';
+    document.body.appendChild(bar);
+    document.getElementById('updLater').onclick = () => { sessionStorage.setItem('et_upd_skip', v.version); bar.remove(); };
+    document.getElementById('updGo').onclick = async () => {
+      try{ const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); }catch(e){}
+      try{ const rs = await navigator.serviceWorker.getRegistrations(); await Promise.all(rs.map(x => x.update())); }catch(e){}
+      location.reload();
+    };
+  }catch(e){}
 }
+setTimeout(checkForUpdate, 8000);
+setInterval(checkForUpdate, 20*60*1000);
+document.addEventListener('visibilitychange', () => { if(!document.hidden) checkForUpdate(); });
   </script>
 <!-- ===== EduTrack Ultra Pro layer: additive; wraps existing functions, removes nothing ===== -->
 <style id="ultra-css">
@@ -7603,7 +7627,7 @@ const close=()=>document.querySelectorAll('.u2o:not([data-lock])').forEach(o=>o.
 const strip=o=>JSON.parse(JSON.stringify(o,(k,v)=>typeof v==='string'&&v.length>4000&&!/photo|picture|avatar/i.test(k)?undefined:v));
 let mt=null,H={};
 async function mirror(force){
- if(!CLOUD.sid||!STAFF.test(CLOUD.role||'')||isPar())return;
+ if(!CLOUD.sid||!STAFF.test(CLOUD.role||'')||isPar())return false;
  const sts=load(LS.students,[]).filter(s=>!s.archived),sc=load(LS.scores,[]),att=load(LS.attendance,{}),pay=load(LS.feePayments,[]),dis=load(LS.discipline,[]),nt=load(LS.notes,[]),ps=load(LS.parents,[]),
   msgs=load(LS.messages,[]),er=load(LS.emailRequests,[]),ap=load(LS.appointments,[]),pk=load(LS.holPackages,[]),iss=load(LS.holIssues,[]),
   tch=load(LS.teachers,[]).map(t=>({id:t.id,name:t.name,role:t.role,class:t.class,stream:t.stream,subjects:t.subjects}));
@@ -7621,7 +7645,8 @@ async function mirror(force){
   const v=JSON.stringify(strip({parent:o,teachers:tch,msgs:msgs.filter(m=>m.toId===p.id||m.fromId===p.id),er:er.filter(x=>JSON.stringify(x).includes(p.id)),
    appt:ap.filter(x=>x.parentId===p.id),pkg:pk.filter(x=>x.target==='all'||cl.includes(x.target)),issues:iss.filter(x=>x.parentId===p.id)}));
   if(force||H['p'+p.id]!==v){H['p'+p.id]=v;upd['pp/'+p.id+'/self/v']=v}});
- if(Object.keys(upd).length)try{await FB.update(['schools',CLOUD.sid],upd)}catch(e){console.warn('mirror',e);H={};if(CLOUD.role==='admin')toast('Parent copies could not be saved ('+(e.code||e.message)+'). Publish the new rules, then press Rebuild on the Backups page.','err')}
+ if(Object.keys(upd).length)try{await FB.update(['schools',CLOUD.sid],upd)}catch(e){console.warn('mirror',e);H={};window.__mirErr=e;if(CLOUD.role==='admin')toast('Parent copies could not be saved ('+(e.code||e.message)+'). Publish the new rules, then press Rebuild on the Backups page.','err');return false}
+ return{n:sts.length,p:ps.length}
 }
 const soon=()=>{clearTimeout(mt);mt=setTimeout(mirror,3500)};
 const _orc=onRemoteChange;onRemoteChange=function(k){_orc(k);soon()};
@@ -7640,10 +7665,10 @@ startCloudSync=async function(){
   C[LS.parents]=ps.parent?[ps.parent]:[];C[LS.teachers]=ps.teachers||[];C[LS.messages]=ps.msgs||[];C[LS.emailRequests]=ps.er||[];C[LS.appointments]=ps.appt||[];C[LS.holPackages]=ps.pkg||[];C[LS.holIssues]=ps.issues||[];
   ['students','parents','messages','emailRequests','appointments','holIssues'].forEach(n=>CLOUD.fmt[LS[n]]='i')};
  await new Promise(res=>{let f=1,w=0;const fin=()=>{if(!w&&f){f=0;res()}};
-  CLOUD.unsubs.push(FB.listen(['schools',sid,'pp',rid,'self'],snap=>{const v=snap.val();ps=v&&v.v?JSON.parse(v.v):{};
+  CLOUD.unsubs.push(FB.listen(['schools',sid,'pp',rid,'self'],snap=>{const v=snap.val();ps=v&&v.v?JSON.parse(v.v):{};if(!v||!v.v)toast('Your parent view has not been prepared yet. Ask the school administrator to open Backups and press Rebuild parent copies now.','err');
    ((ps.parent&&ps.parent.studentIds)||[]).forEach(id=>{if(seen[id])return;seen[id]=1;w++;let first=1;
     CLOUD.unsubs.push(FB.listen(['schools',sid,'pc',id],s=>{const x=s.val();if(x&&x.d)B[id]=JSON.parse(x.d);else delete B[id];build();if(first){first=0;w--;fin()}else onRemoteChange(LS.students)},()=>{if(first){first=0;w--;fin()}}))});
-   build();if(f)fin();else onRemoteChange(LS.messages)},()=>{if(f){f=0;res()}}))})};
+   build();if(f)fin();else onRemoteChange(LS.messages)},e=>{toast('Your parent view could not be read ('+((e&&(e.code||e.message))||'permission denied')+'). Ask the school administrator to publish the latest rules and rebuild parent copies.','err');if(f){f=0;res()}}))})};
 /* ========== 2. AUTOMATIC BACKUPS (replaces manual export/import) ========== */
 async function autoBackup(){
  if(CLOUD.role!=='admin'||!CLOUD.sid)return;const sid=CLOUD.sid;
@@ -7655,7 +7680,7 @@ async function autoBackup(){
 renderAdminBackups=async function(main){
  main.innerHTML='<div class="page-head"><div><h2>Automatic backups</h2><div class="muted small">A full snapshot is saved every day you sign in as administrator. The last 7 are kept.</div></div></div><div class="card" id="bkl"><div class="sk"></div></div>';
  showSampleCard(main);
- main.insertAdjacentHTML('beforeend','<div class="card" style="margin-top:14px"><h4>Parent private copies</h4><div class="muted small" style="margin:4px 0 10px">Parents read only these copies, never the full school data. Press Rebuild after publishing new rules or if a parent sees nothing.</div><button class="btn btn-outline" onclick="U2.mirror().then(()=>toast(\'Parent copies rebuilt\',\'ok\'))">Rebuild parent copies now</button></div>');
+ main.insertAdjacentHTML('beforeend','<div class="card" style="margin-top:14px"><h4>Parent private copies</h4><div class="muted small" style="margin:4px 0 10px">Parents read only these copies, never the full school data. Press Rebuild after publishing new rules or if a parent sees nothing.</div><button class="btn btn-outline" onclick="U2.mirror().then(r=>toast(r?(\'Parent copies rebuilt: \'+r.n+\' students, \'+r.p+\' parents\'):\'Rebuild failed. Read the red message.\',r?\'ok\':\'err\'))">Rebuild parent copies now</button></div>');
  const idx=(await FB.getVal(['schools',CLOUD.sid,'backupIdx']))||{},ds=Object.keys(idx).sort().reverse();
  $('bkl').innerHTML=(ds.map(d=>`<div class="u-row"><div class="g">${d}<small>Full school snapshot</small></div><button class="btn btn-outline btn-sm" onclick="U2.restore('${d}')">Restore</button></div>`).join('')||'<div class="muted">The first snapshot is created automatically.</div>')+'<p class="muted small" style="margin-top:10px">For disaster recovery, also switch on Firebase scheduled backups in the console (Realtime Database → Backups).</p>'};
 async function restore(d){if(!confirm('Restore the school to the snapshot of '+d+'? Current data will be replaced.')||!confirm('Are you absolutely sure?'))return;
@@ -7708,7 +7733,7 @@ async function consent(){
  $('u2no').onclick=()=>{o.remove();booted=null;toast('You need to accept the Terms of Use and Privacy Policy to use '+BR+'.','err');logout(true)}}
 function help(){
  const sch=(load(LS.school,{})||{}).name||'',links=[SUPPORT_EMAIL?`<a href="mailto:${SUPPORT_EMAIL}">${E(SUPPORT_EMAIL)}</a>`:'',SUPPORT_PHONE?`<a href="tel:${SUPPORT_PHONE.replace(/[^+\d]/g,'')}">${E(SUPPORT_PHONE)}</a>`:'',SUPPORT_PHONE2?`<a href="tel:${SUPPORT_PHONE2.replace(/[^+\d]/g,'')}">${E(SUPPORT_PHONE2)}</a>`:'',WA?`<a href="https://wa.me/${WA.replace(/\D/g,'')}" target="_blank" rel="noopener">WhatsApp</a>`:'',S.supportHours?E(S.supportHours):''].filter(Boolean).join(' · ');
- const o=modal(`<div id="u2h"><h3>Help &amp; Support</h3><div class="small"><b>Quick answers</b><br>• Forgot password → ask your school administrator to reset it.<br>• Marks missing → ask the subject teacher to re-submit; check the term filter.<br>• Can't see your child → ask the class teacher to link your account.</div><hr><b>Report a problem</b><select id="sp_c"><option>Account / login</option><option>Marks &amp; reports</option><option>Fees</option><option>Bug</option><option>Other</option></select><select id="sp_p"><option value="normal">Normal — reply within 2 working days</option><option value="high">Urgent — reply within 4 hours</option></select><textarea id="sp_b" rows="4" placeholder="Describe the problem"></textarea><div id="sp_st" class="small" style="min-height:1.3em;margin-top:6px"></div><div class="row" style="gap:8px;margin-top:6px"><button class="btn btn-primary" id="sp_s">Send ticket</button>${SUPPORT_EMAIL?'<a class="btn btn-outline" id="sp_m" href="mailto:${SUPPORT_EMAIL}">Email us</a>':''}<button class="btn btn-outline" onclick="U2.close()">Close</button></div><p class="muted small" style="margin-top:10px">${links}</p><p class="small"><a href="#" onclick="U2.legal('privacy');return false">Privacy</a> · <a href="#" onclick="U2.legal('terms');return false">Terms</a></p></div>`);
+ const o=modal(`<div id="u2h"><h3>Help &amp; Support</h3><div class="small"><b>Quick answers</b><br>• Forgot password → ask your school administrator to reset it.<br>• Marks missing → ask the subject teacher to re-submit; check the term filter.<br>• Can't see your child → ask the class teacher to link your account.</div><hr><b>Report a problem</b><select id="sp_c"><option>Account / login</option><option>Marks &amp; reports</option><option>Fees</option><option>Bug</option><option>Other</option></select><select id="sp_p"><option value="normal">Normal — reply within 2 working days</option><option value="high">Urgent — reply within 4 hours</option></select><textarea id="sp_b" rows="4" placeholder="Describe the problem"></textarea><div id="sp_st" class="small" style="min-height:1.3em;margin-top:6px"></div><div class="row" style="gap:8px;margin-top:6px"><button class="btn btn-primary" id="sp_s">Send ticket</button>${SUPPORT_EMAIL?'<a class="btn btn-outline" id="sp_m" href="mailto:${SUPPORT_EMAIL}">Email us</a>':''}<button class="btn btn-outline" onclick="U2.close()">Close</button></div><p class="muted small" style="margin-top:10px">${links}</p><p class="small"><a href="#" onclick="U2.legal('privacy');return false">Privacy</a> · <a href="#" onclick="U2.legal('terms');return false">Terms</a> · <span class="muted">Version ${typeof APP_VERSION!=='undefined'?APP_VERSION:''}</span></p></div>`);
  const info=()=>({cat:$('sp_c').value,pri:$('sp_p').value,body:$('sp_b').value.trim()});
  const mail=(t,ref)=>`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('['+(S.companyName||'EduTrack')+(t.pri==='high'?' URGENT':'')+' support] '+t.cat+(ref?' — '+ref:''))}&body=${encodeURIComponent((t.body||'')+'\n\n— '+(session.name||'')+' ('+(session.role||'')+') '+(session.email||'')+'\nSchool: '+sch+(ref?'\nRef: '+ref:''))}`;
  $('sp_b').oninput=()=>{$('sp_st').textContent=''};const em=$('sp_m');if(em)em.onclick=()=>{em.href=mail(info())};
